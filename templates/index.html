@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Q-Learning Labyrinthe</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #fff;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container { max-width: 1200px; margin: 0 auto; }
+        h1 { text-align: center; margin-bottom: 30px; color: #00d4ff; font-size: 2.5em; }
+        .main-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 30px; }
+        .panel {
+            background: rgba(255,255,255,0.05);
+            border-radius: 15px;
+            padding: 20px;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .panel h2 { color: #00d4ff; margin-bottom: 15px; font-size: 1.3em; }
+        #labyrinthe {
+            display: grid;
+            gap: 2px;
+            margin: 20px auto;
+            width: fit-content;
+        }
+        .cell {
+            width: 50px; height: 50px;
+            border-radius: 5px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 20px; font-weight: bold;
+            transition: all 0.3s ease;
+        }
+        .cell.vide { background: #2d2d44; }
+        .cell.mur { background: #ff6b6b; }
+        .cell.depart { background: #4ecdc4; }
+        .cell.objectif { background: #ffe66d; color: #333; }
+        .cell.piege { background: #ff4757; }
+        .cell.agent { background: #00d4ff; animation: pulse 0.5s infinite; }
+        @keyframes pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.1); } }
+        .controls { display: flex; flex-direction: column; gap: 10px; margin-top: 15px; }
+        .controls label { display: flex; justify-content: space-between; align-items: center; }
+        .controls input[type="range"] { width: 150px; }
+        .controls input[type="number"] { width: 80px; padding: 5px; border-radius: 5px; border: none; }
+        button {
+            padding: 12px 24px; border: none; border-radius: 8px;
+            cursor: pointer; font-size: 16px; font-weight: bold;
+            transition: all 0.3s; margin: 5px;
+        }
+        .btn-train { background: #00d4ff; color: #1a1a2e; }
+        .btn-train:hover { background: #00a8cc; transform: translateY(-2px); }
+        .btn-play { background: #4ecdc4; color: #1a1a2e; }
+        .btn-play:hover { background: #3db8b0; }
+        .btn-reset { background: #ff6b6b; color: white; }
+        #chart { width: 100%; height: 250px; margin-top: 15px; }
+        #qtable { display: grid; gap: 1px; margin-top: 15px; font-size: 10px; }
+        .q-cell { padding: 4px; text-align: center; background: rgba(255,255,255,0.1); border-radius: 2px; }
+        .q-cell.best { background: #00d4ff; color: #1a1a2e; font-weight: bold; }
+        .log { background: rgba(0,0,0,0.3); padding: 10px; border-radius: 8px; height: 150px; overflow-y: auto; font-family: monospace; font-size: 12px; margin-top: 15px; }
+        .legend { display: flex; gap: 15px; margin-top: 10px; flex-wrap: wrap; justify-content: center; }
+        .legend-item { display: flex; align-items: center; gap: 5px; font-size: 12px; }
+        .legend-box { width: 20px; height: 20px; border-radius: 3px; }
+        .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 15px; }
+        .stat-box { background: rgba(255,255,255,0.1); padding: 10px; border-radius: 8px; text-align: center; }
+        .stat-box .value { font-size: 24px; font-weight: bold; color: #00d4ff; }
+        .stat-box .label { font-size: 12px; color: #aaa; }
+        .trajectory { margin-top: 15px; padding: 10px; background: rgba(0,0,0,0.2); border-radius: 8px; }
+        .trajectory-step { display: inline-block; padding: 3px 8px; margin: 2px; background: #00d4ff; color: #1a1a2e; border-radius: 4px; font-size: 12px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Q-Learning sur Labyrinthe</h1>
+        <div class="main-grid">
+            <div class="panel">
+                <h2>Labyrinthe</h2>
+                <div id="labyrinthe"></div>
+                <div class="legend">
+                    <div class="legend-item"><div class="legend-box" style="background:#4ecdc4"></div> Depart</div>
+                    <div class="legend-item"><div class="legend-box" style="background:#ffe66d"></div> Objectif</div>
+                    <div class="legend-item"><div class="legend-box" style="background:#ff6b6b"></div> Mur</div>
+                    <div class="legend-item"><div class="legend-box" style="background:#ff4757"></div> Piege</div>
+                    <div class="legend-item"><div class="legend-box" style="background:#00d4ff"></div> Agent</div>
+                </div>
+                <div class="controls">
+                    <label>Episodes: <input type="number" id="episodes" value="500" min="100" max="5000"></label>
+                    <label>Alpha: <input type="range" id="alpha" min="0.01" max="1" step="0.01" value="0.1" oninput="document.getElementById('alphaVal').textContent=this.value"><span id="alphaVal">0.1</span></label>
+                    <label>Gamma: <input type="range" id="gamma" min="0.1" max="0.99" step="0.01" value="0.9" oninput="document.getElementById('gammaVal').textContent=this.value"><span id="gammaVal">0.9</span></label>
+                    <label>Epsilon: <input type="range" id="epsilon" min="0.1" max="1" step="0.05" value="1" oninput="document.getElementById('epsVal').textContent=this.value"><span id="epsVal">1</span></label>
+                    <div style="display:flex; gap:10px; justify-content:center; margin-top:10px;">
+                        <button class="btn-train" onclick="train()">Entrainer</button>
+                        <button class="btn-play" onclick="play()">Jouer</button>
+                        <button class="btn-reset" onclick="reset()">Reset</button>
+                    </div>
+                </div>
+                <div class="stats" id="stats" style="display:none;">
+                    <div class="stat-box"><div class="value" id="stat-ep">0</div><div class="label">Episodes</div></div>
+                    <div class="stat-box"><div class="value" id="stat-reward">0</div><div class="label">Reward final</div></div>
+                    <div class="stat-box"><div class="value" id="stat-eps">0</div><div class="label">Epsilon</div></div>
+                </div>
+            </div>
+            <div class="panel">
+                <h2>Resultats</h2>
+                <canvas id="chart"></canvas>
+                <div class="log" id="log">Cliquez sur "Entrainer" pour demarrer...</div>
+                <div class="trajectory" id="trajectory" style="display:none;">
+                    <strong>Trajectoire:</strong>
+                    <div id="traj-steps"></div>
+                </div>
+            </div>
+        </div>
+        <div class="panel" style="margin-top: 20px;">
+            <h2>Q-Table</h2>
+            <div id="qtable"></div>
+        </div>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        const labels = {0: 'H', 1: 'B', 2: 'G', 3: 'D'};
+        let chart = null;
+        
+        async function loadGrid() {
+            const res = await fetch('/api/grid');
+            const data = await res.json();
+            renderGrid(data.grid, data.size);
+        }
+        
+        function renderGrid(grid, size) {
+            const div = document.getElementById('labyrinthe');
+            div.style.gridTemplateColumns = `repeat(${size}, 50px)`;
+            div.innerHTML = '';
+            const names = {0: 'vide', 1: 'mur', 2: 'depart', 3: 'objectif', 4: 'piege', 5: 'agent'};
+            const icons = {0: '', 1: '#', 2: 'S', 3: 'G', 4: 'X', 5: 'A'};
+            for (let row of grid) {
+                for (let cell of row) {
+                    const el = document.createElement('div');
+                    el.className = `cell ${names[cell]}`;
+                    el.textContent = icons[cell] || '';
+                    div.appendChild(el);
+                }
+            }
+        }
+        
+        async function train() {
+            const btn = document.querySelector('.btn-train');
+            btn.disabled = true; btn.textContent = 'Entrainement...';
+            const params = {
+                episodes: parseInt(document.getElementById('episodes').value),
+                alpha: parseFloat(document.getElementById('alpha').value),
+                gamma: parseFloat(document.getElementById('gamma').value),
+                epsilon: parseFloat(document.getElementById('epsilon').value)
+            };
+            const res = await fetch('/api/train', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(params)
+            });
+            const data = await res.json();
+            document.getElementById('stats').style.display = 'grid';
+            document.getElementById('stat-ep').textContent = params.episodes;
+            document.getElementById('stat-reward').textContent = data.history[data.history.length-1].reward.toFixed(1);
+            document.getElementById('stat-eps').textContent = data.final_epsilon.toFixed(4);
+            renderChart(data.history);
+            renderQTable(data.q_table);
+            log(`Entrainement termine! Dernier reward: ${data.history[data.history.length-1].reward.toFixed(2)}`);
+            btn.disabled = false; btn.textContent = 'Entrainer';
+        }
+        
+        async function play() {
+            const res = await fetch('/api/play', {method: 'POST'});
+            const data = await res.json();
+            const trajDiv = document.getElementById('trajectory');
+            const stepsDiv = document.getElementById('traj-steps');
+            trajDiv.style.display = 'block';
+            stepsDiv.innerHTML = data.trajectory.map((pos, i) => 
+                `<span class="trajectory-step">${i}:(${pos[0]},${pos[1]})</span>`
+            ).join('');
+            log(`Partie terminee! Steps: ${data.steps}, Reward: ${data.total_reward.toFixed(2)}, Succes: ${data.success ? 'OUI' : 'NON'}`);
+        }
+        
+        async function reset() {
+            await fetch('/api/reset');
+            await loadGrid();
+            log('Environnement reinitialise');
+        }
+        
+        function renderChart(history) {
+            const ctx = document.getElementById('chart').getContext('2d');
+            if (chart) chart.destroy();
+            const labels = history.map(h => h.episode);
+            const rewards = history.map(h => h.reward);
+            const windowSize = 20;
+            const smoothed = rewards.map((_, i) => {
+                const start = Math.max(0, i - windowSize + 1);
+                const slice = rewards.slice(start, i + 1);
+                return slice.reduce((a, b) => a + b, 0) / slice.length;
+            });
+            chart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels.filter((_, i) => i % 10 === 0),
+                    datasets: [{
+                        label: 'Reward (moyenne mobile)',
+                        data: smoothed.filter((_, i) => i % 10 === 0),
+                        borderColor: '#00d4ff',
+                        backgroundColor: 'rgba(0,212,255,0.1)',
+                        tension: 0.4,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: { legend: { labels: { color: '#fff' } } },
+                    scales: {
+                        x: { ticks: { color: '#aaa' }, grid: { color: 'rgba(255,255,255,0.1)' } },
+                        y: { ticks: { color: '#aaa' }, grid: { color: 'rgba(255,255,255,0.1)' } }
+                    }
+                }
+            });
+        }
+        
+        function renderQTable(qTable) {
+            const div = document.getElementById('qtable');
+            div.style.gridTemplateColumns = `repeat(8, 1fr)`;
+            div.innerHTML = '';
+            for (let state = 0; state < qTable.length; state++) {
+                const values = qTable[state];
+                const bestAction = values.indexOf(Math.max(...values));
+                const cell = document.createElement('div');
+                cell.className = 'q-cell' + (Math.max(...values) > 0 ? ' best' : '');
+                cell.innerHTML = `${labels[bestAction]}<br><small>${Math.max(...values).toFixed(1)}</small>`;
+                cell.title = `State ${state}: [${values.map(v => v.toFixed(2)).join(', ')}]`;
+                div.appendChild(cell);
+            }
+        }
+        
+        function log(msg) {
+            const div = document.getElementById('log');
+            div.innerHTML += `<div>${new Date().toLocaleTimeString()} - ${msg}</div>`;
+            div.scrollTop = div.scrollHeight;
+        }
+        
+        loadGrid();
+    </script>
+</body>
+</html>
